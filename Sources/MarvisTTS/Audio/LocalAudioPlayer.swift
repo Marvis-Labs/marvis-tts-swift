@@ -39,7 +39,7 @@ public final class LocalAudioPlayer {
         queue.async {
             do {
                 #if os(iOS)
-                try configureAudioSession()
+                try self.configureAudioSession()
                 #endif
 
                 if !self.engine.isRunning {
@@ -50,7 +50,7 @@ public final class LocalAudioPlayer {
                 }
                 self.started = true
             } catch {
-                print("Error starting connecting audio player: \(error)")
+                print("Error starting audio player: \(error)")
             }
         }
     }

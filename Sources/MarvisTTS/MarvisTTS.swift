@@ -120,16 +120,23 @@ public extension MarvisTTS {
             }
         }
 
+        let configFileURL = modelDirectoryURL.appending(path: "config.json")
+        let args = try JSONDecoder().decode(SesameModelArgs.self, from: Data(contentsOf: configFileURL))
+        let model = try await MarvisTTS(config: args, repoId: repoId, promptURLs: audioPromptURLs, progressHandler: progressHandler)
+
         var weights = [String: MLXArray]()
         let w = try loadArrays(url: weightFileURL)
         for (key, value) in w {
             weights[key] = value
         }
-        weights = sanitize(weights: weights)
 
-        let configFileURL = modelDirectoryURL.appending(path: "config.json")
-        let args = try JSONDecoder().decode(SesameModelArgs.self, from: Data(contentsOf: configFileURL))
-        let model = try await MarvisTTS(config: args, repoId: repoId, promptURLs: audioPromptURLs, progressHandler: progressHandler)
+        if let quantization = args.quantization, let groupSize = quantization["group_size"], let bits = quantization["bits"] {
+            quantize(model: model, groupSize: groupSize, bits: bits) { path, _ in
+                weights["\(path).scales"] != nil
+            }
+        } else {
+            weights = sanitize(weights: weights)
+        }
 
         let parameters = ModuleParameters.unflattened(weights)
         try model.update(parameters: parameters, verify: [.all])

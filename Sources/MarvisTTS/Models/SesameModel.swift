@@ -165,6 +165,7 @@ public struct SesameModelArgs: Codable, Sendable {
     public let tieWordEmbeddings: Bool
     public let useCache: Bool
     public let vocabSize: Int
+    public let quantization: [String: Int]?
 
     public init(
         modelType: String,
@@ -199,7 +200,8 @@ public struct SesameModelArgs: Codable, Sendable {
         tieCodebooksEmbeddings: Bool,
         tieWordEmbeddings: Bool,
         useCache: Bool,
-        vocabSize: Int
+        vocabSize: Int,
+        quantization: [String: Int]?,
     ) {
         self.modelType = modelType
         self.backboneFlavor = backboneFlavor
@@ -234,6 +236,7 @@ public struct SesameModelArgs: Codable, Sendable {
         self.tieWordEmbeddings = tieWordEmbeddings
         self.useCache = useCache
         self.vocabSize = vocabSize
+        self.quantization = quantization
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -270,6 +273,7 @@ public struct SesameModelArgs: Codable, Sendable {
         case tieWordEmbeddings = "tie_word_embeddings"
         case useCache = "use_cache"
         case vocabSize = "vocab_size"
+        case quantization
     }
 }
 

@@ -45,6 +45,7 @@ enum App {
                 player.enqueue(samples: result.audio)
             }
         )
+        print(String(format: "Finished generation in %0.2fs", CFAbsoluteTimeGetCurrent() - started))
         player.stop(waitForEnd: true)
 
         let elapsed = CFAbsoluteTimeGetCurrent() - started
