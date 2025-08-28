@@ -25,7 +25,7 @@ To use `marvis-tts-swift` with SwiftPM you can add this to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/ml-explore/marvis-tts-swift", from: "0.0.1")
+    .package(url: "https://github.com/Marvis-Labs/marvis-tts-swift", from: "0.0.1")
 ]
 ```
 
