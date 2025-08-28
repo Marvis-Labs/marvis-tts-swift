@@ -1,0 +1,39 @@
+// swift-tools-version:5.10
+import PackageDescription
+
+let package = Package(
+    name: "MarvisTTS",
+    platforms: [
+        .macOS(.v14),
+        .iOS(.v17),
+    ],
+    products: [
+        .library(name: "MarvisTTS", targets: ["MarvisTTS"]),
+        .executable(
+            name: "marvis-tts-cli",
+            targets: ["marvis-tts-cli"],
+        ),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/ml-explore/mlx-swift.git", branch: "main"),
+        .package(url: "https://github.com/huggingface/swift-transformers", .upToNextMinor(from: "0.1.22")),
+        .package(url: "https://github.com/ml-explore/mlx-swift-examples.git", branch: "main"),
+    ],
+    targets: [
+        .target(name: "MarvisTTS",
+                dependencies: [
+                    .product(name: "MLX", package: "mlx-swift"),
+                    .product(name: "MLXNN", package: "mlx-swift"),
+                    .product(name: "MLXRandom", package: "mlx-swift"),
+                    .product(name: "MLXLMCommon", package: "mlx-swift-examples"),
+                    .product(name: "MLXLLM", package: "mlx-swift-examples"),
+                    .product(name: "Transformers", package: "swift-transformers"),
+                ],
+                path: "Sources/MarvisTTS"),
+        .executableTarget(
+            name: "marvis-tts-cli",
+            dependencies: ["MarvisTTS"],
+            path: "Sources/marvis-tts-cli"
+        ),
+    ]
+)
