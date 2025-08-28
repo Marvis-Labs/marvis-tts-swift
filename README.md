@@ -52,7 +52,7 @@ try model.generate(
     voice: .conversationalB,
     stream: true,
     onStreamingResult: { result in
-        player.enqueue(samples: result.audio.asArray(Float32.self))
+        player.enqueue(samples: result.audio)
     }
 )
 
