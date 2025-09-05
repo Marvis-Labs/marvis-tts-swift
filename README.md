@@ -47,17 +47,16 @@ let model = try await MarvisTTS.fromPretrained { progress in /* optionally show 
 let player = LocalAudioPlayer(sampleRate: model.sampleRate)
 
 // Stream audio for playback as it's generated.
-try model.generate(
-    text: "With Marvis TTS, you can stream audio generated directly on device, fully locally and privately.",
-    voice: .conversationalB,
-    stream: true,
-    onStreamingResult: { result in
-        player.enqueue(samples: result.audio)
-    }
-)
+let text = "With Marvis TTS, you can stream audio generated directly on device, fully locally and privately."
+
+for try await result in model.generate(text: text) {
+    player.enqueue(samples: $0.audio)
+}
 
 player.stop(waitForEnd: true)
 ```
+> [!Note]
+> Using a release build or enabling optimizations will signficantly increase generation performance.
 
 ## More Info
 

@@ -37,14 +37,10 @@ enum App {
         print("Generating…")
         let started = CFAbsoluteTimeGetCurrent()
 
-        try model.generate(
-            text: text,
-            voice: voice ?? .conversationalA,
-            stream: true,
-            onStreamingResult: { result in
-                player.enqueue(samples: result.audio)
-            }
-        )
+        for try await result in model.generate(text: text, voice: voice ?? .conversationalA) {
+            player.enqueue(samples: result.audio)
+        }
+
         print(String(format: "Finished generation in %0.2fs", CFAbsoluteTimeGetCurrent() - started))
         player.stop(waitForEnd: true)
 
