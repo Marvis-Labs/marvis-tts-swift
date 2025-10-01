@@ -9,6 +9,7 @@ enum App {
             try await run(
                 text: args.text,
                 voice: args.voice,
+                quality: args.quality,
                 repoId: args.repoId
             )
         } catch {
@@ -21,6 +22,7 @@ enum App {
     private static func run(
         text: String,
         voice: MarvisTTS.Voice?,
+        quality: MarvisTTS.QualityLevel? = nil,
         repoId: String
     ) async throws {
         print("Loading model (\(repoId))…")
@@ -37,7 +39,7 @@ enum App {
         print("Generating…")
         let started = CFAbsoluteTimeGetCurrent()
 
-        for try await result in model.generate(text: text, voice: voice ?? .conversationalA) {
+        for try await result in model.generate(text: text, voice: voice ?? .conversationalA, qualityLevel: quality ?? .maximum) {
             player.enqueue(samples: result.audio)
         }
 
@@ -66,11 +68,13 @@ enum CLIError: Error, CustomStringConvertible {
 struct CLI {
     let text: String
     let voice: MarvisTTS.Voice?
+    let quality: MarvisTTS.QualityLevel?
     let repoId: String
 
     static func parse() throws -> CLI {
         var text: String?
         var voice: MarvisTTS.Voice? = nil
+        var quality: MarvisTTS.QualityLevel? = nil
         var repoId = "Marvis-AI/marvis-tts-250m-v0.1"
 
         var it = CommandLine.arguments.dropFirst().makeIterator()
@@ -91,6 +95,15 @@ struct CLI {
             case "--repo", "--repo-id":
                 guard let v = it.next() else { throw CLIError.missingValue(arg) }
                 repoId = v
+            case "--quality":
+                guard let v = it.next() else { throw CLIError.missingValue(arg) }
+                quality = switch v.lowercased() {
+                case "low": .low
+                case "medium": .medium
+                case "high": .high
+                case "maximum": .maximum
+                default: nil
+                }
             case "--help", "-h":
                 printUsage()
                 exit(0)
@@ -108,7 +121,7 @@ struct CLI {
             throw CLIError.missingValue("--text")
         }
 
-        return CLI(text: finalText, voice: voice, repoId: repoId)
+        return CLI(text: finalText, voice: voice, quality: quality, repoId: repoId)
     }
 
     static func printUsage() {
@@ -120,6 +133,7 @@ struct CLI {
         Options:
           -t, --text <string>           Text to synthesize (required if not passed as trailing arg)
           -v, --voice <name>            Voice id (conversational_a | conversational_b). Default: conversational_b
+          -q, --quality <level>         Quality level (low | medium | high | maximum). Default: maximum
               --repo-id <repo>          HF repo id. Default: Marvis-AI/marvis-tts-250m-v0.1
           -h, --help                    Show this help
 

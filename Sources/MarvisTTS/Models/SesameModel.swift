@@ -465,6 +465,7 @@ public final class SesameModel: Module {
     }
 
     public func generateFrame(
+        maxCodebooks: Int?,
         tokens: MLXArray,
         tokensMask: MLXArray,
         inputPos: MLXArray,
@@ -499,7 +500,7 @@ public final class SesameModel: Module {
 
         decoderCache = makePromptCache(model: decoder, parameters: nil) as? [KVCacheSimple]
 
-        let Cb = args.audioNumCodebooks
+        let Cb = maxCodebooks != nil ? min(args.audioNumCodebooks, maxCodebooks ?? args.audioNumCodebooks) : args.audioNumCodebooks
         if Cb > 1 {
             for i in 1 ..< Cb {
                 let decH = decoder(projection(currH), cache: decoderCache) // [B, Tcur, D_dec]

@@ -11,6 +11,13 @@ public final class MarvisTTS: Module {
         case conversationalB = "conversational_b"
     }
     
+    public enum QualityLevel: Int {
+        case low = 8
+        case medium = 16
+        case high = 24
+        case maximum = 32
+    }
+    
     public let sampleRate: Double
     
     private let model: SesameModel
@@ -219,6 +226,7 @@ public extension MarvisTTS {
     func generate(
         text: [String],
         voice: Voice? = .conversationalA,
+        qualityLevel: QualityLevel = .maximum,
         refAudio: MLXArray?,
         refText: String?,
         splitPattern: String? = #"(\n+)"#,
@@ -228,6 +236,7 @@ public extension MarvisTTS {
         for try await chunk in generate(
             text: text,
             voice: voice,
+            qualityLevel: qualityLevel,
             refAudio: refAudio,
             refText: refText,
             streamingInterval: streamingInterval
@@ -240,6 +249,7 @@ public extension MarvisTTS {
     func generate(
         text: String,
         voice: Voice? = .conversationalA,
+        qualityLevel: QualityLevel = .maximum,
         refAudio: MLXArray? = nil,
         refText: String? = nil,
         splitPattern: String? = #"(\n+)"#,
@@ -248,6 +258,7 @@ public extension MarvisTTS {
         generate(
             text: Self.textPieces(text, splitPattern: splitPattern),
             voice: voice,
+            qualityLevel: qualityLevel,
             refAudio: refAudio,
             refText: refText,
             streamingInterval: streamingInterval
@@ -257,6 +268,7 @@ public extension MarvisTTS {
     func generate(
         text: [String],
         voice: Voice? = .conversationalA,
+        qualityLevel: QualityLevel = .maximum,
         refAudio: MLXArray? = nil,
         refText: String? = nil,
         streamingInterval: Double = 0.5
@@ -337,6 +349,7 @@ public extension MarvisTTS {
                             if Task.isCancelled { break outerLoop }
                             
                             let frame = model.generateFrame(
+                                maxCodebooks: qualityLevel.rawValue,
                                 tokens: currTokens,
                                 tokensMask: currMask,
                                 inputPos: currPos,
