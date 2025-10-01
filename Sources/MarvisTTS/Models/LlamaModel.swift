@@ -4,21 +4,23 @@ import MLXLLM
 import MLXLMCommon
 import MLXNN
 
-private class Llama3ScaledRoPE: Module {
-    // Config
-    let dims: Int // Dh (must be even)
-    var maxSeqLen: Int
+final class Llama3ScaledRoPE: Module {
+    let dims: Int
+    private let d2: Int
     let base: Float
+    let maxSeqLen: Int
     let scaleFactor: Float
     let lowFreqFactor: Float
     let highFreqFactor: Float
     let oldContextLen: Float
 
-    private var theta: MLXArray? // [Dh/2] (float32)
-    private var cache: MLXArray? // [L, Dh/2, 2] with cos/sin
+    private var cosF32: MLXArray?
+    private var sinF32: MLXArray?
+    private var cosByDType: [DType: MLXArray] = [:]
+    private var sinByDType: [DType: MLXArray] = [:]
     private var isCacheBuilt = false
 
-    public init(
+    init(
         dims: Int,
         maxSeqLen: Int = 2048,
         base: Float = 500000.0,
@@ -26,20 +28,20 @@ private class Llama3ScaledRoPE: Module {
         lowFreqFactor: Float = 1.0,
         highFreqFactor: Float = 4.0,
         oldContextLen: Float = 8192.0) {
-        precondition(dims % 2 == 0, "RoPE dims must be even")
+        precondition(dims % 2 == 0, "RoPE dim must be even")
         self.dims = dims
-        self.maxSeqLen = maxSeqLen
+        d2 = dims / 2
         self.base = base
+        self.maxSeqLen = maxSeqLen
         self.scaleFactor = scaleFactor
         self.lowFreqFactor = lowFreqFactor
         self.highFreqFactor = highFreqFactor
         self.oldContextLen = oldContextLen
         super.init()
-
         ropeInit()
     }
 
-    public convenience init(dims: Int, config: LlamaConfiguration) {
+    convenience init(dims: Int, config: LlamaConfiguration) {
         let base = config.ropeTheta
         let rs = config.ropeScaling
         func num(_ k: String, _ d: Float) -> Float {
@@ -48,8 +50,8 @@ private class Llama3ScaledRoPE: Module {
             case .float(let x): return Float(x)
             case .string(let s): return Float(s) ?? d
             default:
-                assertionFailure("unexpected value for \(k): \(v)")
-                return 0.0
+                assertionFailure("unexpected ropeScaling value for \(k): \(v)")
+                return d
             }
         }
         self.init(
@@ -62,92 +64,107 @@ private class Llama3ScaledRoPE: Module {
             oldContextLen: num("original_max_position_embeddings", 8192.0))
     }
 
-    public func ropeInit() {
-        let indices = MLXArray(stride(from: 0, to: dims, by: 2)).asType(.float32) // [Dh/2]
-        let exponents = indices / MLXArray(Float(dims))
-        let freqs = MLX.pow(MLXArray(base), -exponents) // base ** (-i/d)
+    private func ropeInit() {
+        let idx = MLXArray(stride(from: 0, to: dims, by: 2)).asType(.float32)
+        let exponents = idx / MLXArray(Float(dims))
+        let freqs = MLX.pow(MLXArray(base), exponents).asType(.float32)
+        let invFreqs = MLXArray(1.0) / freqs
 
-        let th = applyScaling(freqs: freqs,
-                              scaleFactor: scaleFactor,
-                              lowFreqFactor: lowFreqFactor,
-                              highFreqFactor: highFreqFactor,
-                              oldContextLen: oldContextLen)
-        theta = th
-        buildRoPECache(maxSeqLen)
+        let theta = applyScaling(freqs: invFreqs)
+
+        let seq = MLXArray(stride(from: 0, to: maxSeqLen, by: 1)).asType(.float32).reshaped([maxSeqLen, 1])
+        let idxTheta = seq * theta.reshaped([1, d2])
+        cosF32 = cos(idxTheta)
+        sinF32 = sin(idxTheta)
+
+        cosByDType.removeAll()
+        sinByDType.removeAll()
         isCacheBuilt = true
     }
 
-    private func buildRoPECache(_ L: Int) {
-        guard let th = theta else { return }
-        let seqIdx = MLXArray(stride(from: 0, to: L, by: 1)).asType(th.dtype) // [L]
-        let idxTheta = (seqIdx.reshaped([L, 1]) * th.reshaped([1, th.shape[0]])).asType(.float32)
-        let cosT = cos(idxTheta)
-        let sinT = sin(idxTheta)
-        cache = stacked([cosT, sinT], axis: -1) // [L, Dh/2, 2]
-        maxSeqLen = L
-    }
-
-    private func applyScaling(
-        freqs: MLXArray,
-        scaleFactor: Float,
-        lowFreqFactor: Float,
-        highFreqFactor: Float,
-        oldContextLen: Float) -> MLXArray {
-        // wavelen = 2π / freq
+    private func applyScaling(freqs: MLXArray) -> MLXArray {
         let twoPi = MLXArray(2.0 * Float.pi)
         let wavelens = twoPi / freqs
 
-        let hiThr = MLXArray(oldContextLen / highFreqFactor)
-        let loThr = MLXArray(oldContextLen / lowFreqFactor)
+        let low = MLXArray(oldContextLen / lowFreqFactor)
+        let high = MLXArray(oldContextLen / highFreqFactor)
 
-        let freqDiv = freqs / MLXArray(scaleFactor)
+        var smooth = (MLXArray(oldContextLen) / wavelens - MLXArray(lowFreqFactor)) / MLXArray(highFreqFactor - lowFreqFactor)
+        smooth = MLX.minimum(MLX.maximum(smooth, MLXArray(0.0)), MLXArray(1.0))
 
-        let smooth = (MLXArray(oldContextLen) / wavelens - MLXArray(lowFreqFactor))
-            / MLXArray(highFreqFactor - lowFreqFactor)
-        let smoothBlend = (MLXArray(1.0) - smooth) * freqDiv + smooth * freqs
+        let scaled = freqs / MLXArray(scaleFactor)
+        let blended = (MLXArray(1.0) - smooth) * scaled + smooth * freqs
 
-        let lessHi = wavelens .< hiThr
-        let greaterLo = wavelens .> loThr
-        let mid = MLX.where(greaterLo, freqDiv, smoothBlend)
-        let out = MLX.where(lessHi, freqs, mid)
+        let condA = wavelens .< high
+        let condB = wavelens .> low
+        let out = MLX.where(condA, freqs, MLX.where(condB, scaled, blended))
         return out.asType(freqs.dtype)
     }
 
-    public func callAsFunction(_ x: MLXArray, offset: Int? = nil) -> MLXArray {
+    private func getCache(dtype: DType, seqLen: Int, offset: Int?) -> (MLXArray, MLXArray) {
         precondition(isCacheBuilt, "RoPE cache is not built. Call ropeInit() first.")
-        guard var cache else { return x }
+        guard let cosF32, let sinF32 else { return (MLXArray(0), MLXArray(0)) }
+
+        let start = max(offset ?? 0, 0)
+        let end = start + seqLen
+        precondition(end <= maxSeqLen, "RoPE cache length exceeded")
+
+        // Prepare dtype-specific backing arrays
+        let cosSrc: MLXArray
+        let sinSrc: MLXArray
+        if dtype == .float32 {
+            cosSrc = cosF32
+            sinSrc = sinF32
+        } else {
+            if cosByDType[dtype] == nil {
+                cosByDType[dtype] = cosF32.asType(dtype)
+                sinByDType[dtype] = sinF32.asType(dtype)
+            }
+            cosSrc = cosByDType[dtype]!
+            sinSrc = sinByDType[dtype]!
+        }
+
+        let cosHead = split(cosSrc, indices: [start], axis: 0)[1]
+        let sinHead = split(sinSrc, indices: [start], axis: 0)[1]
+        let cosSeg = split(cosHead, indices: [seqLen], axis: 0)[0]
+        let sinSeg = split(sinHead, indices: [seqLen], axis: 0)[0]
+
+        let cosB = cosSeg.reshaped([1, seqLen, 1, d2])
+        let sinB = sinSeg.reshaped([1, seqLen, 1, d2])
+        return (cosB, sinB)
+    }
+
+    // MARK: - Apply RoPE
+
+    public func callAsFunction(_ x: MLXArray, offset: Int? = nil) -> MLXArray {
+        precondition(x.shape.last == dims, "Last dim \(String(describing: x.shape.last)) must equal RoPE dim \(dims)")
 
         let seqAxis = (x.ndim == 4) ? 2 : 1
         let seqLen = x.shape[seqAxis]
-        let need = (offset ?? 0) + seqLen
-        if need > cache.shape[0] { buildRoPECache(need); cache = self.cache! }
 
-        let start = max(offset ?? 0, 0)
-        let head = split(cache, indices: [start], axis: 0)[1]
-        let seg = split(head, indices: [seqLen], axis: 0)[0]
+        let (cosB, sinB) = getCache(dtype: x.dtype, seqLen: seqLen, offset: offset)
 
-        let pairs = dims / 2
-        let xF = x.asType(.float32)
-        let xShaped = xF.reshaped(Array(xF.shape.dropLast()) + [pairs, 2])
-
-        var ropeShape = Array(repeating: 1, count: xShaped.ndim)
-        ropeShape[seqAxis] = seqLen
-        ropeShape[xShaped.ndim - 2] = pairs
-        ropeShape[xShaped.ndim - 1] = 2
-        let rope = seg.reshaped(ropeShape) // [..., T, pairs, 2] with 1s elsewhere
+        let xShaped = x.reshaped(Array(x.shape.dropLast()) + [d2, 2])
 
         func splitLast2(_ a: MLXArray) -> (MLXArray, MLXArray) {
             let p = split(a, indices: [1], axis: a.ndim - 1)
-            return (p[0], p[1]) // (..., 1)
+            return (p[0], p[1])
         }
-        let (x0, x1) = splitLast2(xShaped)
-        let (c, s) = splitLast2(rope)
+        let (xEven, xOdd) = splitLast2(xShaped)
 
-        let y0 = x0 * c - x1 * s
-        let y1 = x1 * c + x0 * s
-        let y = stacked([y0, y1], axis: xShaped.ndim - 1)
-        let out = y.reshaped(x.shape).asType(x.dtype)
-        return out
+        var ropeShape = [Int](repeating: 1, count: xShaped.ndim - 2)
+        ropeShape[seqAxis] = seqLen
+        ropeShape[xShaped.ndim - 2 - 1] = (x.ndim == 4) ? x.shape[1] : 1
+        ropeShape = [Int](repeating: 1, count: xShaped.ndim - 2)
+        ropeShape[seqAxis] = seqLen
+        let c = cosB.reshaped(ropeShape + [d2, 1])
+        let s = sinB.reshaped(ropeShape + [d2, 1])
+
+        let yEven = xEven * c - xOdd * s
+        let yOdd = xOdd * c + xEven * s
+
+        let y = stacked([yEven, yOdd], axis: xShaped.ndim - 1)
+        return y.reshaped(x.shape)
     }
 }
 
