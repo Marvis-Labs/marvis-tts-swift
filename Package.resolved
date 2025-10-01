@@ -1,5 +1,5 @@
 {
-  "originHash" : "414532b4225edbe910baa711562be19080c0e5369453bbfd89f99b8a0db82ac4",
+  "originHash" : "6d6dd21bde0eb075c7b353528ca5fbcc33b867526a9cb64b9dcf0d7815f5af1a",
   "pins" : [
     {
       "identity" : "gzipswift",
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ml-explore/mlx-swift.git",
       "state" : {
-        "branch" : "main",
-        "revision" : "75305546cbe5c54e46cea911bdf6fc5220baf458"
+        "revision" : "96c0f69cf15f38abd6248bb71fca908171dab1d8",
+        "version" : "0.25.6"
       }
     },
     {
