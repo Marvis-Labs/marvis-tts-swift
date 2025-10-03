@@ -80,7 +80,7 @@ public final class MarvisTTS: Module {
         let frameW = K + 1
         
         let x = audio.reshaped([1, 1, audio.shape[0]])
-        var codes = _audio_tokenizer.codec.encode(x) // [1, K, Tq]
+        var codes = _audio_tokenizer.codec.encodeChunked(x) // [1, K, Tq]
         codes = split(codes, indices: [1], axis: 0)[0].reshaped([K, codes.shape[2]])
         
         if addEOS {
@@ -115,7 +115,9 @@ public final class MarvisTTS: Module {
 }
 
 public extension MarvisTTS {
-    static func fromPretrained(repoId: String = "Marvis-AI/marvis-tts-250m-v0.1", progressHandler: @escaping (Progress) -> Void) async throws -> MarvisTTS {
+    static func fromPretrained(repoId: String = "Marvis-AI/marvis-tts-250m-v0.1-MLX-8bit", progressHandler: @escaping (Progress) -> Void) async throws -> MarvisTTS {
+        GPU.set(cacheLimit: 100 * 1024 * 1024)
+        
         let modelDirectoryURL = try await Hub.snapshot(from: repoId, progressHandler: progressHandler)
         let weightFileURL = modelDirectoryURL.appending(path: "model.safetensors")
         let promptFileURLs = modelDirectoryURL.appending(path: "prompts", directoryHint: .isDirectory)

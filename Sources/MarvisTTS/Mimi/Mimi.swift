@@ -173,6 +173,19 @@ public final class Mimi: Module {
         return quantizer.encode(z) // [B, nq, Tq]
     }
 
+    public func encodeChunked(_ xs: MLXArray, chunkSize: Int = 48_000) -> MLXArray {
+        encoder.resetState()
+        for c in encoderCache { c.reset() }
+
+        var codes = [MLXArray]()
+        for start in stride(from: 0, to: xs.shape[2], by: chunkSize) {
+            let xsChunk = xs[.ellipsis, start ..< min(xs.shape[2], start + chunkSize)]
+            let partialCodes = encodeStep(xsChunk)
+            codes.append(partialCodes)
+        }
+        return MLX.concatenated(codes, axis: 2)
+    }
+
     public func decode(_ codes: MLXArray) -> MLXArray {
         decoder.resetState()
         for c in decoderCache { c.reset() }

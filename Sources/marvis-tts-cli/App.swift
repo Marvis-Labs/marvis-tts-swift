@@ -1,5 +1,6 @@
 import Foundation
 import MarvisTTS
+import MLX
 
 @main
 enum App {
@@ -44,6 +45,7 @@ enum App {
         }
 
         print(String(format: "Finished generation in %0.2fs", CFAbsoluteTimeGetCurrent() - started))
+        print("Memory usage:\n\(GPU.snapshot())")
         player.stop(waitForEnd: true)
 
         let elapsed = CFAbsoluteTimeGetCurrent() - started
@@ -75,7 +77,7 @@ struct CLI {
         var text: String?
         var voice: MarvisTTS.Voice? = nil
         var quality: MarvisTTS.QualityLevel? = nil
-        var repoId = "Marvis-AI/marvis-tts-250m-v0.1"
+        var repoId = "Marvis-AI/marvis-tts-250m-v0.1-MLX-8bit"
 
         var it = CommandLine.arguments.dropFirst().makeIterator()
         while let arg = it.next() {
@@ -134,7 +136,7 @@ struct CLI {
           -t, --text <string>           Text to synthesize (required if not passed as trailing arg)
           -v, --voice <name>            Voice id (conversational_a | conversational_b). Default: conversational_b
           -q, --quality <level>         Quality level (low | medium | high | maximum). Default: maximum
-              --repo-id <repo>          HF repo id. Default: Marvis-AI/marvis-tts-250m-v0.1
+              --repo-id <repo>          HF repo id. Default: Marvis-AI/marvis-tts-250m-v0.1-MLX-8bit
           -h, --help                    Show this help
 
         Examples:
