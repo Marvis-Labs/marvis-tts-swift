@@ -1,4 +1,5 @@
 import Foundation
+import Hub
 import MarvisTTS
 import MLX
 
@@ -28,7 +29,9 @@ enum App {
     ) async throws {
         print("Loading model (\(repoId))…")
 
-        let model = try await MarvisTTS.fromPretrained(repoId: repoId) { progress in
+        let cacheDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!.appending(component: "MarvisTTS/hub")
+        let hub = HubApi(downloadBase: cacheDirectory)
+        let model = try await MarvisTTS.fromPretrained(hub: hub, repoId: repoId) { progress in
             let pct = Int((progress.fractionCompleted * 100).rounded())
             if pct % 10 == 0 {
                 print("Download progress: \(pct)%")

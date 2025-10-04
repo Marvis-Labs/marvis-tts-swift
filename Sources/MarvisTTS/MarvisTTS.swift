@@ -28,14 +28,15 @@ public final class MarvisTTS: Module {
     
     public init(
         config: SesameModelArgs,
+        hub: HubApi = .shared,
         repoId: String,
         promptURLs: [URL]? = nil,
         progressHandler: @escaping (Progress) -> Void
     ) async throws {
         self.model = SesameModel(config: config)
         self._promptURLs = promptURLs
-        self._textTokenizer = try await loadTokenizer(configuration: ModelConfiguration(id: repoId), hub: HubApi.shared)
-        self._audio_tokenizer = try await MimiTokenizer(Mimi.fromPretrained(progressHandler: progressHandler))
+        self._textTokenizer = try await loadTokenizer(configuration: ModelConfiguration(id: repoId), hub: hub)
+        self._audio_tokenizer = try await MimiTokenizer(Mimi.fromPretrained(hub: hub, progressHandler: progressHandler))
         self._streamingDecoder = MimiStreamingDecoder(_audio_tokenizer.codec)
         self.sampleRate = _audio_tokenizer.codec.cfg.sampleRate
         super.init()
@@ -75,13 +76,38 @@ public final class MarvisTTS: Module {
         return (frame, mask)
     }
     
-    private func tokenizeAudio(_ audio: MLXArray, addEOS: Bool = true) -> (MLXArray, MLXArray) {
+    private func cacheURL(for audioURL: URL) -> URL {
+        let cacheFilename = audioURL.deletingPathExtension().appendingPathExtension("npy").lastPathComponent
+        let cacheDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!.appending(component: "MarvisTTS/prompt_cache")
+        try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        return cacheDirectory.appending(component: cacheFilename)
+    }
+    
+    private func tokenizeAudio(_ audioURL: URL, addEOS: Bool = true) throws -> (MLXArray, MLXArray) {
         let K = model.args.audioNumCodebooks
-        let frameW = K + 1
         
-        let x = audio.reshaped([1, 1, audio.shape[0]])
-        var codes = _audio_tokenizer.codec.encodeChunked(x) // [1, K, Tq]
-        codes = split(codes, indices: [1], axis: 0)[0].reshaped([K, codes.shape[2]])
+        var codes: MLXArray
+        let cacheURL = cacheURL(for: audioURL)
+        if let cachedCodes = try? MLX.loadArray(url: cacheURL) {
+            codes = cachedCodes
+        } else {
+            let (sampleRate, audio) = try loadAudioArray(from: audioURL)
+            guard abs(sampleRate - 24000) < .leastNonzeroMagnitude else {
+                throw MarvisTTSError.invalidRefAudio("Reference audio must be single-channel (mono) 24kHz, in WAV format.")
+            }
+            
+            let x = audio.reshaped([1, 1, audio.shape[0]])
+            let encoded = _audio_tokenizer.codec.encodeChunked(x) // [1, K, Tq]
+            codes = split(encoded, indices: [1], axis: 0)[0].reshaped([K, encoded.shape[2]])
+            
+            do {
+                try MLX.save(array: codes, url: cacheURL)
+            } catch {
+                print("Unable to save cached prompt: \(error)")
+            }
+        }
+        
+        let frameW = K + 1
         
         if addEOS {
             let eos = MLXArray.zeros([K, 1], type: Int32.self)
@@ -107,18 +133,18 @@ public final class MarvisTTS: Module {
         return (frame, mask)
     }
     
-    private func tokenizeSegment(_ segment: Segment, addEOS: Bool = true) -> (MLXArray, MLXArray) {
+    private func tokenizeSegment(_ segment: Segment, addEOS: Bool = true) throws -> (MLXArray, MLXArray) {
         let (txt, txtMask) = tokenizeTextSegment(text: segment.text, speaker: segment.speaker)
-        let (aud, audMask) = tokenizeAudio(segment.audio, addEOS: addEOS)
+        let (aud, audMask) = try tokenizeAudio(segment.audioURL, addEOS: addEOS)
         return (concatenated([txt, aud], axis: 0), concatenated([txtMask, audMask], axis: 0))
     }
 }
 
 public extension MarvisTTS {
-    static func fromPretrained(repoId: String = "Marvis-AI/marvis-tts-250m-v0.1-MLX-8bit", progressHandler: @escaping (Progress) -> Void) async throws -> MarvisTTS {
+    static func fromPretrained(hub: HubApi = .shared, repoId: String = "Marvis-AI/marvis-tts-250m-v0.1-MLX-8bit", progressHandler: @escaping (Progress) -> Void) async throws -> MarvisTTS {
         GPU.set(cacheLimit: 100 * 1024 * 1024)
         
-        let modelDirectoryURL = try await Hub.snapshot(from: repoId, progressHandler: progressHandler)
+        let modelDirectoryURL = try await hub.snapshot(from: repoId, progressHandler: progressHandler)
         let weightFileURL = modelDirectoryURL.appending(path: "model.safetensors")
         let promptFileURLs = modelDirectoryURL.appending(path: "prompts", directoryHint: .isDirectory)
         
@@ -131,7 +157,7 @@ public extension MarvisTTS {
         
         let configFileURL = modelDirectoryURL.appending(path: "config.json")
         let args = try JSONDecoder().decode(SesameModelArgs.self, from: Data(contentsOf: configFileURL))
-        let model = try await MarvisTTS(config: args, repoId: repoId, promptURLs: audioPromptURLs, progressHandler: progressHandler)
+        let model = try await MarvisTTS(config: args, hub: hub, repoId: repoId, promptURLs: audioPromptURLs, progressHandler: progressHandler)
         
         var weights = [String: MLXArray]()
         let w = try loadArrays(url: weightFileURL)
@@ -197,12 +223,12 @@ public extension MarvisTTS {
 private struct Segment {
     public let speaker: Int
     public let text: String
-    public let audio: MLXArray
+    public let audioURL: URL
     
-    public init(speaker: Int, text: String, audio: MLXArray) {
+    public init(speaker: Int, text: String, audioURL: URL) {
         self.speaker = speaker
         self.text = text
-        self.audio = audio
+        self.audioURL = audioURL
     }
 }
 
@@ -229,7 +255,7 @@ public extension MarvisTTS {
         text: [String],
         voice: Voice? = .conversationalA,
         qualityLevel: QualityLevel = .maximum,
-        refAudio: MLXArray?,
+        refAudioURL: URL?,
         refText: String?,
         splitPattern: String? = #"(\n+)"#,
         streamingInterval: Double = 0.5
@@ -239,7 +265,7 @@ public extension MarvisTTS {
             text: text,
             voice: voice,
             qualityLevel: qualityLevel,
-            refAudio: refAudio,
+            refAudioURL: refAudioURL,
             refText: refText,
             streamingInterval: streamingInterval
         ) {
@@ -252,7 +278,7 @@ public extension MarvisTTS {
         text: String,
         voice: Voice? = .conversationalA,
         qualityLevel: QualityLevel = .maximum,
-        refAudio: MLXArray? = nil,
+        refAudioURL: URL? = nil,
         refText: String? = nil,
         splitPattern: String? = #"(\n+)"#,
         streamingInterval: Double = 0.5
@@ -261,7 +287,7 @@ public extension MarvisTTS {
             text: Self.textPieces(text, splitPattern: splitPattern),
             voice: voice,
             qualityLevel: qualityLevel,
-            refAudio: refAudio,
+            refAudioURL: refAudioURL,
             refText: refText,
             streamingInterval: streamingInterval
         )
@@ -271,20 +297,20 @@ public extension MarvisTTS {
         text: [String],
         voice: Voice? = .conversationalA,
         qualityLevel: QualityLevel = .maximum,
-        refAudio: MLXArray? = nil,
+        refAudioURL: URL? = nil,
         refText: String? = nil,
         streamingInterval: Double = 0.5
     ) -> AsyncThrowingStream<GenerationResult, Error> {
         AsyncThrowingStream(bufferingPolicy: .unbounded) { continuation in
             Task {
                 do {
-                    guard voice != nil || refAudio != nil else {
-                        throw MarvisTTSError.invalidArgument("`voice` or `refAudio`/`refText` must be specified.")
+                    guard voice != nil || refAudioURL != nil else {
+                        throw MarvisTTSError.invalidArgument("`voice` or `refAudioURL`/`refText` must be specified.")
                     }
                     
                     let context: Segment
-                    if let refAudio, let refText {
-                        context = Segment(speaker: 0, text: refText, audio: refAudio)
+                    if let refAudioURL, let refText {
+                        context = Segment(speaker: 0, text: refText, audioURL: refAudioURL)
                     } else if let voice {
                         var refAudioURL: URL?
                         for promptURL in _promptURLs ?? [] {
@@ -296,17 +322,13 @@ public extension MarvisTTS {
                             throw MarvisTTSError.voiceNotFound
                         }
                         
-                        let (sampleRate, refAudio) = try loadAudioArray(from: refAudioURL)
-                        guard abs(sampleRate - 24000) < .leastNonzeroMagnitude else {
-                            throw MarvisTTSError.invalidRefAudio("Reference audio must be single-channel (mono) 24kHz, in WAV format.")
-                        }
-                        
                         let refTextURL = refAudioURL.deletingPathExtension().appendingPathExtension("txt")
                         let refText = try String(data: Data(contentsOf: refTextURL), encoding: .utf8)
                         guard let refText else {
                             throw MarvisTTSError.voiceNotFound
                         }
-                        context = Segment(speaker: 0, text: refText, audio: refAudio)
+                        
+                        context = Segment(speaker: 0, text: refText, audioURL: refAudioURL)
                     } else {
                         throw MarvisTTSError.voiceNotFound
                     }
@@ -316,24 +338,18 @@ public extension MarvisTTS {
                     let streamingIntervalTokens = Int(streamingInterval * 12.5)
                     
                     outerLoop:
-                        for prompt in text {
+                    for prompt in text {
                         if Task.isCancelled { break outerLoop }
                         
                         let generationText = (context.text + " " + prompt).trimmingCharacters(in: .whitespaces)
-                        let currentContext = [Segment(speaker: 0, text: generationText, audio: context.audio)]
+                        let seg = Segment(speaker: 0, text: generationText, audioURL: context.audioURL)
                         
                         model.resetCaches()
                         _streamingDecoder.reset()
                         
-                        var toks: [MLXArray] = []
-                        var masks: [MLXArray] = []
-                        for seg in currentContext {
-                            let (st, sm) = tokenizeSegment(seg, addEOS: false)
-                            toks.append(st); masks.append(sm)
-                        }
-                        
-                        let promptTokens = concatenated(toks, axis: 0).asType(Int32.self) // [T, K+1]
-                        let promptMask = concatenated(masks, axis: 0).asType(Bool.self) // [T, K+1]
+                        let (toks, masks) = try tokenizeSegment(seg, addEOS: false)
+                        let promptTokens = toks.asType(Int32.self) // [T, K+1]
+                        let promptMask = masks.asType(Bool.self) // [T, K+1]
                         
                         var samplesFrames: [MLXArray] = [] // each is [B=1, K]
                         var currTokens = expandedDimensions(promptTokens, axis: 0) // [1, T, K+1]

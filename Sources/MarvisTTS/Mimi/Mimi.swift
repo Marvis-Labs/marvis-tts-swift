@@ -244,11 +244,11 @@ public final class MimiStreamingDecoder {
 }
 
 public extension Mimi {
-    static func fromPretrained(repoId: String = "kyutai/moshiko-pytorch-bf16", filename: String = "tokenizer-e351c8d8-checkpoint125.safetensors", progressHandler: @escaping (Progress) -> Void) async throws -> Mimi {
+    static func fromPretrained(hub: HubApi = .shared, repoId: String = "kyutai/moshiko-pytorch-bf16", filename: String = "tokenizer-e351c8d8-checkpoint125.safetensors", progressHandler: @escaping (Progress) -> Void) async throws -> Mimi {
         let cfg = mimi_202407(numCodebooks: 32)
         let model = Mimi(cfg: cfg)
 
-        let weightFileURL = try await Hub.snapshot(from: repoId, matching: filename, progressHandler: progressHandler).appending(path: filename)
+        let weightFileURL = try await hub.snapshot(from: repoId, matching: filename, progressHandler: progressHandler).appending(path: filename)
 
         var weights = [String: MLXArray]()
         let w = try loadArrays(url: weightFileURL)
@@ -267,6 +267,7 @@ public extension Mimi {
 
         let parameters = ModuleParameters.unflattened(weights)
         try model.update(parameters: parameters, verify: [.all])
+        model.half()
 
         eval(model)
         return model
@@ -354,4 +355,25 @@ public final class MimiTokenizer {
         codec.train(false)
         self.codec = codec
     }
+}
+
+// MARK: -
+
+extension Module {
+    @discardableResult
+    func castFloatingParameters(to dtype: DType) -> Self {
+        apply(map: { (a: MLXArray) -> MLXArray in
+            if a.dtype.isFloatingPoint {
+                a.asType(dtype)
+            } else {
+                a
+            }
+        })
+    }
+
+    @discardableResult
+    func half() -> Self { castFloatingParameters(to: .float16) }
+
+    @discardableResult
+    func bfloat16() -> Self { castFloatingParameters(to: .bfloat16) }
 }
