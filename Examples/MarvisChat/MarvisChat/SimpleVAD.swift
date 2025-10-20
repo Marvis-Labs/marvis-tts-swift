@@ -13,6 +13,7 @@ class SimpleVAD {
     var hangTime: TimeInterval
     
     private let speechBuffer = SpeechBuffer()
+    private let speechBufferTranscriber = SpeechBufferTranscriber()
     private var verifier: SpeechVerifier?
     
     private var lastSpeechTime: TimeInterval?
@@ -23,7 +24,7 @@ class SimpleVAD {
         
         Task {
             do {
-                let result = try await SpeechBufferTranscriber.shared.prepare()
+                let result = try await speechBufferTranscriber.prepare()
                 print("On-device transcription preparation result: \(result)")
             } catch {
                 print("Unable to prepare on-device transcription: \(error)")
@@ -120,7 +121,7 @@ class SimpleVAD {
         
         let start = CACurrentMediaTime()
         let audioFile = try AVAudioFile(forReading: audioURL, commonFormat: buffer.format.commonFormat, interleaved: buffer.format.isInterleaved)
-        let message = try await SpeechBufferTranscriber.shared.transcribe(from: audioFile)
+        let message = try await speechBufferTranscriber.transcribe(from: audioFile)
         if let message, !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             print("Transcription completed in \(CACurrentMediaTime() - start): \(message)")
             return message
@@ -175,8 +176,6 @@ class SpeechBufferTranscriber {
         case assetsNotInstalled
     }
 
-    public static let shared = SpeechBufferTranscriber()
-    
     func prepare() async throws -> Bool {
         guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale.current) else {
             print("Warning: Current locale (\(Locale.current)) is not supported for transcription.")

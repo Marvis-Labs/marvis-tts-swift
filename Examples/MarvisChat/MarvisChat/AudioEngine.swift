@@ -17,6 +17,7 @@ final class AudioEngine {
 
     private let engine = AVAudioEngine()
     private let streamingPlayer = AVAudioPlayerNode()
+    private var configurationChangeObserver: Task<Void, Never>?
 
     private var currentSpeakingTask: Task<Void, Error>?
     private var firstBufferQueued = false
@@ -40,6 +41,16 @@ final class AudioEngine {
 
     func setup() throws {
         precondition(engine.isRunning == false, "Audio engine must be stopped before setup.")
+
+        if configurationChangeObserver == nil {
+            configurationChangeObserver = Task { [weak self] in
+                guard let self else { return }
+
+                for await _ in NotificationCenter.default.notifications(named: .AVAudioEngineConfigurationChange) {
+                    engineConfigurationChanged()
+                }
+            }
+        }
 
         let input = engine.inputNode
         try input.setVoiceProcessingEnabled(true)
@@ -84,6 +95,16 @@ final class AudioEngine {
 
     func endSpeaking() {
         resetStreamingState()
+    }
+
+    private func engineConfigurationChanged() {
+        if !engine.isRunning {
+            do {
+                try engine.start()
+            } catch {
+                print("Failed to start audio engine after configuration change: \(error)")
+            }
+        }
     }
 
     private func resetStreamingState() {

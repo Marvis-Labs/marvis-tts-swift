@@ -66,12 +66,20 @@ struct ContentView: View {
         .padding()
         .background(Color.black.opacity(0.01))
         .preferredColorScheme(.light)
+        .onChange(of: viewModel.speechController.canSpeak) { _, newValue in
+            if newValue {
+                Task {
+                    if !viewModel.speechController.isActive {
+                        try await viewModel.startConversation()
+                    }
+                }
+            }
+        }
     }
     
     @ViewBuilder
     private var assistantCircle: some View {
         let isActive = viewModel.speechController.isActive
-        let canSpeak = viewModel.speechController.canSpeak
         let isSpeaking = viewModel.speechController.isSpeaking
         let isDetectingSpeech = viewModel.speechController.isDetectingSpeech
         
@@ -82,8 +90,6 @@ struct ContentView: View {
                 .background {
                     if !isActive {
                         RadialGradient(colors: [.black.opacity(0.4), .black.opacity(0.3)], center: .topLeading, startRadius: 0, endRadius: 300)
-                    } else if isActive, !canSpeak {
-                        RadialGradient(colors: [.black.opacity(0.5), .red], center: .topLeading, startRadius: 0, endRadius: 300)
                     } else if isDetectingSpeech {
                         RadialGradient(colors: [.black.opacity(0.5), .black], center: .topLeading, startRadius: 0, endRadius: 300)
                     } else {
@@ -95,9 +101,8 @@ struct ContentView: View {
         }
         .scaleEffect(CGSize(width: isActive ? 1.0 : 0.7, height: isActive ? 1.0 : 0.7))
         .animation(.easeOut(duration: 0.2), value: viewModel.speechController.isActive)
-        .animation(.easeOut(duration: 0.2), value: viewModel.speechController.canSpeak)
-        .animation(.easeOut(duration: 0.5), value: viewModel.speechController.isSpeaking)
-        .animation(.easeOut(duration: 0.5), value: viewModel.speechController.isDetectingSpeech)
+        .animation(.easeOut(duration: 0.4), value: viewModel.speechController.isSpeaking)
+        .animation(.easeOut(duration: 0.4), value: viewModel.speechController.isDetectingSpeech)
     }
     
     @ViewBuilder
@@ -105,25 +110,39 @@ struct ContentView: View {
         let isActive = viewModel.speechController.isActive
         
         Button {
-            Task {
-                if permissionStatus == .undetermined {
-                    let granted = await AVAudioApplication.requestRecordPermission()
-                    withAnimation {
-                        permissionStatus = granted ? .granted : .denied
+            if viewModel.speechController.canSpeak {
+                Task {
+                    if permissionStatus == .undetermined {
+                        let granted = await AVAudioApplication.requestRecordPermission()
+                        withAnimation {
+                            permissionStatus = granted ? .granted : .denied
+                        }
                     }
+                    
+                    try await toggleConversation()
                 }
-                
-                try await toggleConversation()
             }
         } label: {
-            Image(systemName: isActive ? "mic.fill" : "mic.slash.fill")
-                .font(.system(size: 32, weight: .light))
-                .foregroundStyle(.white)
-                .padding(24)
-                .background(Color.brown.opacity(0.5))
-                .clipShape(Circle())
-                .compositingGroup()
-                .blendMode(.multiply)
+            if !viewModel.speechController.canSpeak {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 32, weight: .light))
+                    .foregroundStyle(.white)
+                    .padding(24)
+                    .background(Color.black.opacity(0.5))
+                    .clipShape(Circle())
+                    .compositingGroup()
+                    .blendMode(.multiply)
+                    .symbolEffect(.variableColor.iterative.dimInactiveLayers.nonReversing, options: .repeat(.continuous))
+            } else {
+                Image(systemName: isActive ? "mic.fill" : "mic.slash.fill")
+                    .font(.system(size: 32, weight: .light))
+                    .foregroundStyle(.white)
+                    .padding(24)
+                    .background(Color.orange.opacity(isActive ? 0.8 : 0.5))
+                    .clipShape(Circle())
+                    .compositingGroup()
+                    .blendMode(.multiply)
+            }
         }
     }
     
