@@ -43,7 +43,7 @@ enum App {
         print("Generating…")
         let started = CFAbsoluteTimeGetCurrent()
 
-        for try await result in model.generate(text: text, voice: voice ?? .conversationalA, qualityLevel: quality ?? .maximum) {
+        for try await result in model.generate(text: text, voice: voice ?? .conversationalA, qualityLevel: quality ?? .high) {
             player.enqueue(samples: result.audio)
         }
 
@@ -80,7 +80,7 @@ struct CLI {
         var text: String?
         var voice: MarvisTTS.Voice? = nil
         var quality: MarvisTTS.QualityLevel? = nil
-        var repoId = "Marvis-AI/marvis-tts-250m-v0.1-MLX-8bit"
+        var repoId = "Marvis-AI/marvis-tts-250m-v0.2-MLX-6bit"
 
         var it = CommandLine.arguments.dropFirst().makeIterator()
         while let arg = it.next() {
@@ -139,7 +139,7 @@ struct CLI {
           -t, --text <string>           Text to synthesize (required if not passed as trailing arg)
           -v, --voice <name>            Voice id (conversational_a | conversational_b). Default: conversational_b
           -q, --quality <level>         Quality level (low | medium | high | maximum). Default: maximum
-              --repo-id <repo>          HF repo id. Default: Marvis-AI/marvis-tts-250m-v0.1-MLX-8bit
+              --repo-id <repo>          HF repo id. Default: Marvis-AI/marvis-tts-250m-v0.2-MLX-6bit
           -h, --help                    Show this help
 
         Examples:

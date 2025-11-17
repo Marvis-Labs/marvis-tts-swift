@@ -1,6 +1,6 @@
 # Marvis TTS (Swift)
 
-A Swift version of [Marvis TTS](https://huggingface.co/Marvis-AI/marvis-tts-250m-v0.1), running locally on Apple Silicon using [MLX Swift](https://github.com/ml-explore/mlx-swift).
+A Swift version of [Marvis TTS](https://huggingface.co/Marvis-AI/marvis-tts-250m-v0.2), running locally on Apple Silicon using [MLX Swift](https://github.com/ml-explore/mlx-swift).
 
 - Streaming generation for realtime playback
 - Expressive voice presets

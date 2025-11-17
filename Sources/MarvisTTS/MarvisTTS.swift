@@ -141,7 +141,7 @@ public final class MarvisTTS: Module {
 }
 
 public extension MarvisTTS {
-    static func fromPretrained(hub: HubApi = .shared, repoId: String = "Marvis-AI/marvis-tts-250m-v0.1-MLX-8bit", progressHandler: @escaping (Progress) -> Void) async throws -> MarvisTTS {
+    static func fromPretrained(hub: HubApi = .shared, repoId: String = "Marvis-AI/marvis-tts-250m-v0.2-MLX-6bit", progressHandler: @escaping (Progress) -> Void) async throws -> MarvisTTS {
         GPU.set(cacheLimit: 100 * 1024 * 1024)
         
         let modelDirectoryURL = try await hub.snapshot(from: repoId, progressHandler: progressHandler)
@@ -165,10 +165,15 @@ public extension MarvisTTS {
             weights[key] = value
         }
         
-        if let quantization = args.quantization, let groupSize = quantization["group_size"], let bits = quantization["bits"] {
-            quantize(model: model, groupSize: groupSize, bits: bits) { path, _ in
-                weights["\(path).scales"] != nil
+        if let quantization = args.quantization,
+           let groupSize = quantization["group_size"],
+           let bits = quantization["bits"] {
+            if case let .number(g) = groupSize, case let .number(b) = bits {
+                quantize(model: model, groupSize: Int(g), bits: Int(b)) { path, _ in
+                    weights["\(path).scales"] != nil
+                }
             }
+            
         } else {
             weights = sanitize(weights: weights)
         }

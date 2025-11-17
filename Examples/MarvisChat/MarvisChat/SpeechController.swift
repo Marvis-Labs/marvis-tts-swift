@@ -29,7 +29,7 @@ final class SpeechController {
     @ObservationIgnored
     private var model: MarvisTTS?
 
-    init(ttsRepoId: String = "Marvis-AI/marvis-tts-250m-v0.1-MLX-8bit") {
+    init(ttsRepoId: String = "Marvis-AI/marvis-tts-250m-v0.2-MLX-6bit") {
         self.audioEngine = AudioEngine(inputBufferSize: 1024)
         self.vad = SimpleVAD()
         audioEngine.delegate = self

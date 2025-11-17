@@ -15,9 +15,9 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/huggingface/swift-transformers", .upToNextMajor(from: "1.0.0")),
-        .package(url: "https://github.com/ml-explore/mlx-swift.git", .upToNextMajor(from: "0.25.6")),
-        .package(url: "https://github.com/ml-explore/mlx-swift-examples.git", .upToNextMajor(from: "2.25.8")),
+        .package(url: "https://github.com/huggingface/swift-transformers", .upToNextMajor(from: "1.1.2")),
+        .package(url: "https://github.com/ml-explore/mlx-swift.git", .upToNextMajor(from: "0.29.1")),
+        .package(url: "https://github.com/ml-explore/mlx-swift-lm.git", .upToNextMajor(from: "2.29.2")),
     ],
     targets: [
         .target(name: "MarvisTTS",
@@ -25,8 +25,8 @@ let package = Package(
                     .product(name: "MLX", package: "mlx-swift"),
                     .product(name: "MLXNN", package: "mlx-swift"),
                     .product(name: "MLXRandom", package: "mlx-swift"),
-                    .product(name: "MLXLMCommon", package: "mlx-swift-examples"),
-                    .product(name: "MLXLLM", package: "mlx-swift-examples"),
+                    .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
+                    .product(name: "MLXLLM", package: "mlx-swift-lm"),
                     .product(name: "Transformers", package: "swift-transformers"),
                 ],
                 path: "Sources/MarvisTTS"),
